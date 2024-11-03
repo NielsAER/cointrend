@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Details</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: rgb(18, 21, 29);
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background-color: rgb(26, 32, 44);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .token-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .token-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background-color: rgb(26, 32, 44);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .stat-label {
+            color: rgb(113, 128, 150);
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .chart-container {
+            height: 400px;
+            background-color: rgb(26, 32, 44);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .progress-section {
+            background-color: rgb(26, 32, 44);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .progress-title {
+            color: rgb(113, 128, 150);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background-color: rgba(113, 128, 150, 0.2);
+            border-radius: 2px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-fill.bonding {
+            background-color: #48bb78;
+        }
+
+        .progress-fill.king {
+            background-color: #f6ad55;
+        }
+
+        .progress-description {
+            color: rgb(113, 128, 150);
+            font-size: 14px;
+            line-height: 1.5;
+            margin-top: 12px;
+        }
+
+        .highlight {
+            color: #fff;
+            font-weight: 500;
+        }
+
+        .trades-section {
+            background-color: rgb(26, 32, 44);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .trades-header {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 16px;
+        }
+
+        .trade-item {
+            display: grid;
+            grid-template-columns: auto 1fr auto auto;
+            gap: 20px;
+            padding: 12px;
+            border-bottom: 1px solid rgba(113, 128, 150, 0.2);
+        }
+
+        .trade-buy {
+            color: #48bb78;
+        }
+
+        .trade-sell {
+            color: #f56565;
+        }
+
+        .positive-change {
+            color: #48bb78;
+        }
+
+        .negative-change {
+            color: #f56565;
+        }
+
+        #goBack {
+            background-color: rgb(45, 55, 72);
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        #goBack:hover {
+            background-color: rgb(55, 65, 82);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <button id="goBack" onclick="window.history.back()">← Back</button>
+
+        <div class="card token-header">
+            <img id="tokenIcon" src="/api/placeholder/32/32" alt="Token" class="token-icon">
+            <div>
+                <div id="tokenSymbol" style="font-size: 18px; font-weight: 600;">Loading...</div>
+                <div id="priceInfo" style="color: rgb(113, 128, 150); font-size: 14px;"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Market Cap</div>
+                <div class="stat-value" id="marketCap">-</div>
+                <div class="stat-change" id="mcapChange"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">24h Volume</div>
+                <div class="stat-value" id="volume">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Holders</div>
+                <div class="stat-value" id="holders">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Liquidity</div>
+                <div class="stat-value" id="liquidity">-</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="priceChart"></canvas>
+        </div>
+
+        <div class="progress-section">
+            <div class="progress-title">Bonding Curve Progress</div>
+            <div class="progress-bar">
+                <div class="progress-fill bonding" id="bondingProgressBar" style="width: 5%;"></div>
+            </div>
+            <div class="progress-description" id="bondingInfo">
+                when the market cap reaches <span class="highlight">$68,948</span> all the liquidity from
+                the bonding curve will be deposited into Pavilion and burned. progression increases as the price goes up.
+            </div>
+            <div class="progress-description">
+                there are <span class="highlight" id="availableTokens">...</span> tokens still available for sale in the
+                bonding curve and there is <span class="highlight" id="solInCurve">...</span> SOL in the bonding curve.
+            </div>
+        </div>
+
+        <div class="progress-section">
+            <div class="progress-title">King of the Hill Progress</div>
+            <div class="progress-bar">
+                <div class="progress-fill king" id="kingProgressBar" style="width: 5%;"></div>
+            </div>
+            <div class="progress-description">
+                dethrone the current king at a <span class="highlight" id="dethroneMcap">...</span> mcap
+            </div>
+        </div>
+
+        <div class="trades-section">
+            <div class="trades-header">Recent Trades</div>
+            <div id="tradesList"></div>
+        </div>
+    </div>
+
+    <script>
+        let priceChart;
+        let ws;
+        const urlParams = new URLSearchParams(window.location.search);
+        const mint = urlParams.get('mint');
+
+        async function initPage() {
+            setupWebSocket();
+            initChart();
+            await loadInitialData();
+        }
+
+        function setupWebSocket() {
+            ws = new WebSocket('ws://localhost:3001');
+
+            ws.onopen = () => {
+                console.log('WebSocket Connected');
+                if (mint) {
+                    ws.send(JSON.stringify({ type: 'subscribe', mint: mint }));
+                }
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                updateUI(data);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(setupWebSocket, 3000);
+            };
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Price',
+                        data: [],
+                        borderColor: '#48bb78',
+                        tension: 0.4,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    scales: {
+                        y: {
+                            ticks: {
+                                color: '#718096',
+                                callback: value => `$${value}`
+                            },
+                            grid: { color: '#2d3748' }
+                        },
+                        x: {
+                            ticks: { color: '#718096' },
+                            grid: { color: '#2d3748' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#2d3748',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            cornerRadius: 6,
+                            padding: 10
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadInitialData() {
+            if (!mint) return;
+
+            try {
+                const token = await getTokenFromDB(mint);
+                if (token) {
+                    updateUI(token);
+                }
+            } catch (error) {
+                console.error('Error loading initial data:', error);
+            }
+        }
+
+        function updateUI(data) {
+            // Update basic info
+            document.getElementById('tokenSymbol').textContent = data.symbol || '-';
+            document.getElementById('tokenIcon').src = data.imageUrl || '/api/placeholder/32/32';
+
+            // Update stats
+            document.getElementById('marketCap').textContent = formatCurrency(data.marketCapUsd);
+            document.getElementById('volume').textContent = formatCurrency(data.volume24h);
+            document.getElementById('holders').textContent = data.holderCount?.toLocaleString() || '-';
+            document.getElementById('liquidity').textContent = formatCurrency(data.liquidity);
+
+            // Update progress bars
+            document.getElementById('bondingProgressBar').style.width = '5%';
+            document.getElementById('kingProgressBar').style.width = '5%';
+
+            // Update token info
+            document.getElementById('availableTokens').textContent = data.availableTokens?.toLocaleString() || '...';
+            document.getElementById('solInCurve').textContent = `${data.solInCurve || '...'} SOL`;
+            document.getElementById('dethroneMcap').textContent = formatCurrency(data.dethroneMcap);
+
+            // Update chart
+            if (data.price && priceChart) {
+                updateChart(data.price);
+            }
+
+            // Update trades if available
+            if (data.recentTrade) {
+                addTrade(data.recentTrade);
+            }
+        }
+
+        function updateChart(price) {
+            const timestamp = new Date().toLocaleTimeString();
+
+            priceChart.data.labels.push(timestamp);
+            priceChart.data.datasets[0].data.push(price);
+
+            if (priceChart.data.labels.length > 100) {
+                priceChart.data.labels.shift();
+                priceChart.data.datasets[0].data.shift();
+            }
+
+            priceChart.update('none');
+        }
+
+        function addTrade(trade) {
+            const tradesList = document.getElementById('tradesList');
+            const tradeEl = document.createElement('div');
+            tradeEl.className = `trade-item trade-${trade.type}`;
+
+            tradeEl.innerHTML = `
+                <span>${new Date(trade.timestamp).toLocaleTimeString()}</span>
+                <span>${trade.type.toUpperCase()}</span>
+                <span>${formatCurrency(trade.price)}</span>
+                <span>${trade.amount?.toFixed(2)} ${trade.symbol}</span>
+            `;
+
+            tradesList.insertBefore(tradeEl, tradesList.firstChild);
+
+            while (tradesList.children.length > 50) {
+                tradesList.removeChild(tradesList.lastChild);
+            }
+        }
+
+        function formatCurrency(value) {
+            if (!value) return '-';
+            const num = parseFloat(value);
+            if (isNaN(num)) return '-';
+            if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
+            if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
+            if (num >= 1e3) return `$${(num / 1e3).toFixed(2)}K`;
+            return `$${num.toFixed(2)}`;
+        }
+
+        // Initialize the page
+        window.addEventListener('load', initPage);
+    </script>
+</body>
+</html>

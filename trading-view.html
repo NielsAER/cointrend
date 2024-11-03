@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading View</title>
+    <style>
+        :root {
+            --bg-primary: #131722;
+            --bg-secondary: #1e222d;
+            --text-primary: #d1d4dc;
+            --text-secondary: #787b86;
+            --accent-green: #26a69a;
+            --accent-red: #ef5350;
+            --border-color: #2a2e39;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        .top-bar {
+            background: var(--bg-secondary);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .back-button {
+            color: var(--text-secondary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 1px;
+            height: calc(100vh - 50px);
+            background-color: var(--border-color);
+        }
+
+        .chart-container {
+            background: var(--bg-primary);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .token-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .token-image {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+        }
+
+        .token-name {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .market-cap {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .timeframe-selector {
+            display: flex;
+            gap: 5px;
+        }
+
+        .timeframe-btn {
+            padding: 4px 8px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .timeframe-btn.active {
+            background: var(--accent-green);
+        }
+
+        .trading-panel {
+            background: var(--bg-secondary);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .panel-section {
+            background: var(--bg-primary);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .panel-section h3 {
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .order-input {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px;
+            border-radius: 4px;
+            width: 100%;
+        }
+
+        .quick-amount {
+            display: flex;
+            gap: 5px;
+            margin: 10px 0;
+        }
+
+        .quick-amount button {
+            flex: 1;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .trade-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-buy {
+            background: var(--accent-green);
+        }
+
+        .btn-sell {
+            background: var(--accent-red);
+        }
+
+        .progress-container {
+            margin: 15px 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent-green);
+            transition: width 0.3s ease;
+        }
+
+        .holder-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .holder-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 14px;
+        }
+
+        .holder-address {
+            color: var(--text-secondary);
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: var(--text-secondary);
+        }
+
+        .error {
+            color: var(--accent-red);
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <a href="index.html" class="back-button">← go back</a>
+        <div id="created-by"></div>
+    </div>
+
+    <div class="container">
+        <div class="chart-container">
+            <div class="header">
+                <div class="token-info">
+                    <img id="token-image" src="" alt="" class="token-image">
+                    <div>
+                        <span id="token-name" class="token-name"></span>
+                        <div id="market-cap" class="market-cap"></div>
+                    </div>
+                </div>
+                <div class="timeframe-selector">
+                    <button class="timeframe-btn active">5m</button>
+                    <button class="timeframe-btn">1h</button>
+                    <button class="timeframe-btn">4h</button>
+                    <button class="timeframe-btn">1d</button>
+                </div>
+            </div>
+            <div id="chart"></div>
+        </div>
+
+        <div class="trading-panel">
+            <div class="panel-section">
+                <h3>Trade</h3>
+                <input type="number" class="order-input" placeholder="0.0 SOL">
+                <div class="quick-amount">
+                    <button>0.1 SOL</button>
+                    <button>0.5 SOL</button>
+                    <button>1.5 SOL</button>
+                </div>
+                <div class="trade-buttons">
+                    <button class="btn btn-buy">Buy</button>
+                    <button class="btn btn-sell">Sell</button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Bonding Curve Progress</h3>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="bonding-progress" class="progress-fill" style="width: 1%"></div>
+                    </div>
+                    <div id="bonding-info" style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;"></div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>King of the Hill Progress</h3>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="king-progress" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div id="king-info" style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;"></div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Holder Distribution</h3>
+                <div id="holder-list" class="holder-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.1/lightweight-charts.standalone.production.js"></script>
+    <script>
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const mint = urlParams.get('mint');
+        const symbol = urlParams.get('symbol');
+
+        let tokenData = null;
+        let chart = null;
+        let candleSeries = null;
+
+        async function initializeChart() {
+            const chartContainer = document.getElementById('chart');
+            chart = LightweightCharts.createChart(chartContainer, {
+                width: chartContainer.clientWidth,
+                height: 500,
+                layout: {
+                    background: { color: '#131722' },
+                    textColor: '#d1d4dc',
+                },
+                grid: {
+                    vertLines: { color: '#1e222d' },
+                    horzLines: { color: '#1e222d' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                priceScale: {
+                    borderColor: '#2a2e39',
+                },
+                timeScale: {
+                    borderColor: '#2a2e39',
+                    timeVisible: true,
+                },
+            });
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderDownColor: '#ef5350',
+                borderUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+                wickUpColor: '#26a69a',
+            });
+
+            // Sample data - replace with real data
+            const data = [
+                { time: '2024-02-11', open: 0.00000002, high: 0.000000025, low: 0.000000015, close: 0.00000002 },
+                { time: '2024-02-12', open: 0.00000002, high: 0.000000028, low: 0.000000019, close: 0.000000022 }
+            ];
+
+            candleSeries.setData(data);
+
+            window.addEventListener('resize', () => {
+                chart.applyOptions({
+                    width: chartContainer.clientWidth,
+                });
+            });
+        }
+
+        async function getTokenDetails() {
+            try {
+                const db = await new Promise((resolve, reject) => {
+                    const request = indexedDB.open('TokenDatabase', 1);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve(request.result);
+                });
+
+                const transaction = db.transaction(['tokens'], 'readonly');
+                const store = transaction.objectStore('tokens');
+                const token = await new Promise((resolve, reject) => {
+                    const request = store.get(mint);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve(request.result);
+                });
+
+                if (token) {
+                    tokenData = token;
+                    updateUI(token);
+                } else {
+                    throw new Error('Token not found');
+                }
+            } catch (error) {
+                console.error('Error loading token details:', error);
+                document.querySelector('.container').innerHTML = `
+                    <div class="error">Error loading token details: ${error.message}</div>
+                `;
+            }
+        }
+
+        function updateUI(token) {
+            // Update token info
+            document.getElementById('token-image').src = token.imageUrl || 'https://via.placeholder.com/32';
+            document.getElementById('token-name').textContent = token.name;
+            document.getElementById('market-cap').textContent = `Market cap: $${formatNumber(token.marketCapUsd)}`;
+            document.getElementById('created-by').textContent = `created by ${token.creator}`;
+
+            // Update bonding curve progress
+            const bondingProgress = document.getElementById('bonding-progress');
+            const bondingInfo = document.getElementById('bonding-info');
+            bondingProgress.style.width = '1%';
+            bondingInfo.textContent = `${token.holderCount} tokens still available for sale in the bonding curve`;
+
+            // Update king of the hill progress
+            const kingProgress = document.getElementById('king-progress');
+            const kingInfo = document.getElementById('king-info');
+            kingProgress.style.width = '0%';
+            kingInfo.textContent = `dethrone the current king at a $${formatNumber(token.marketCapUsd)} mcap`;
+
+            // Update holder list
+            const holderList = document.getElementById('holder-list');
+            holderList.innerHTML = '';
+
+            if (token.holders) {
+                token.holders.forEach((holder, index) => {
+                    const holderItem = document.createElement('div');
+                    holderItem.className = 'holder-item';
+                    holderItem.innerHTML = `
+                        <span class="holder-address">${holder.address}</span>
+                        <span class="holder-percentage">${holder.percentage.toFixed(2)}%</span>
+                    `;
+                    holderList.appendChild(holderItem);
+                });
+            }
+        }
+
+        function formatNumber(num) {
+            if (!num) return '0';
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(2) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(2) + 'K';
+            }
+            return num.toFixed(2);
+        }
+
+        // Quick amount button handlers
+        document.querySelectorAll('.quick-amount button').forEach(button => {
+            button.addEventListener('click', () => {
+                const amount = parseFloat(button.textContent);
+                document.querySelector('.order-input').value = amount;
+            });
+        });
+
+        // Timeframe button handlers
+        document.querySelectorAll('.timeframe-btn').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.timeframe-btn').forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                // Here you would update the chart data based on the selected timeframe
+                updateChartTimeframe(button.textContent);
+            });
+        });
+
+        // Buy/Sell button handlers
+        document.querySelector('.btn-buy').addEventListener('click', () => {
+            const amount = parseFloat(document.querySelector('.order-input').value);
+            if (amount > 0) {
+                executeTrade('buy', amount);
+            }
+        });
+
+        document.querySelector('.btn-sell').addEventListener('click', () => {
+            const amount = parseFloat(document.querySelector('.order-input').value);
+            if (amount > 0) {
+                executeTrade('sell', amount);
+            }
+        });
+
+        async function executeTrade(type, amount) {
+            // Here you would implement the actual trading logic
+            console.log(`Executing ${type} trade for ${amount} SOL`);
+            // Connect to your trading backend/smart contract here
+        }
+
+        async function updateChartTimeframe(timeframe) {
+            // Here you would fetch new data based on the timeframe
+            console.log(`Updating chart for timeframe: ${timeframe}`);
+            // Fetch and update chart data here
+        }
+
+        // WebSocket connection for real-time updates
+        function initializeWebSocket() {
+            const ws = new WebSocket('ws://localhost:3001');
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.mint === mint) {
+                    updatePriceData(data);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket connection closed. Attempting to reconnect...');
+                setTimeout(initializeWebSocket, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function updatePriceData(data) {
+            if (candleSeries && data.price) {
+                // Update the chart with new price data
+                candleSeries.update({
+                    time: data.timestamp,
+                    open: data.price.open,
+                    high: data.price.high,
+                    low: data.price.low,
+                    close: data.price.close
+                });
+
+                // Update market cap and other relevant information
+                if (data.marketCap) {
+                    document.getElementById('market-cap').textContent =
+                        `Market cap: $${formatNumber(data.marketCap)}`;
+                }
+            }
+        }
+
+        // Initialize everything when the page loads
+        async function initialize() {
+            await getTokenDetails();
+            await initializeChart();
+            initializeWebSocket();
+        }
+
+        initialize();
+    </script>
+</body>
+</html>
