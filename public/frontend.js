@@ -67,8 +67,8 @@ async function getTokensFromDB() {
 // WebSocket setup
 function getWebSocketUrl() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname;
-    const port = process.env.PORT || 3001;
+    const host = window.location.hostname || 'localhost';
+    const port = '3001';
     return `${protocol}//${host}:${port}/ws`;
 }
 
@@ -139,7 +139,9 @@ async function handleInitialTokens(tokens) {
     
     allTokens = tokens;
     await saveTokensToDB(tokens);
-    updateDisplay();
+    if (typeof window.filterSortAndDisplayTokens === 'function') {
+        window.filterSortAndDisplayTokens();
+    }
 }
 
 async function handleNewToken(token) {
@@ -157,105 +159,70 @@ async function handleNewToken(token) {
     }
     
     await saveTokensToDB(allTokens);
-    updateDisplay();
+    if (typeof window.filterSortAndDisplayTokens === 'function') {
+        window.filterSortAndDisplayTokens();
+    }
 }
 
 async function handleNewTrade(trade) {
     console.log('Handling new trade:', trade);
     allTrades.unshift(trade);
     if (allTrades.length > 100) allTrades.pop();
-    updateDisplay();
-}
-
-// API and data fetching
-function getApiBaseUrl() {
-    const port = process.env.PORT || 3001;
-    return process.env.NODE_ENV === 'production' 
-        ? window.location.origin 
-        : `http://localhost:${port}`;
-}
-
-async function httpGet(endpoint) {
-    const baseUrl = getApiBaseUrl();
-    try {
-        const response = await fetch(`${baseUrl}${endpoint}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
-    } catch (error) {
-        console.error('Fetch error:', error);
-        throw error;
+    if (typeof window.filterSortAndDisplayTokens === 'function') {
+        window.filterSortAndDisplayTokens();
     }
 }
 
 async function fetchAndDisplayData() {
     try {
-        const [tokens, trades] = await Promise.all([
-            httpGet('/api/tokens'),
-            httpGet('/api/trades')
-        ]);
-
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/tokens`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const tokens = await response.json();
+        
         if (Array.isArray(tokens)) {
             allTokens = tokens;
             await saveTokensToDB(tokens);
+            if (typeof window.filterSortAndDisplayTokens === 'function') {
+                window.filterSortAndDisplayTokens();
+            }
         }
-        
-        if (Array.isArray(trades)) {
-            allTrades = trades;
-        }
-
-        updateDisplay();
     } catch (error) {
         console.error('Error fetching data:', error);
-        // Try to load from IndexedDB if API fetch fails
         const savedTokens = await getTokensFromDB();
         if (savedTokens.length > 0) {
             allTokens = savedTokens;
-            updateDisplay();
+            if (typeof window.filterSortAndDisplayTokens === 'function') {
+                window.filterSortAndDisplayTokens();
+            }
         }
     }
 }
 
-// Display functions
-function updateDisplay() {
-    displayTokens();
-    displayTrades();
-}
-
-function displayTokens() {
-    console.log('Displaying Tokens:');
-    allTokens.slice(0, 10).forEach(token => {
-        console.log(`- ${token.name || 'N/A'} (${token.mint || 'N/A'}) - Created: ${new Date(token.timestamp).toLocaleString() || 'N/A'}`);
-        if (token.marketCapUsd) {
-            console.log(`  Market Cap: $${token.marketCapUsd.toLocaleString()}`);
-        }
-    });
-}
-
-function displayTrades() {
-    console.log('\nRecent Trades:');
-    allTrades.slice(0, 10).forEach(trade => {
-        console.log(`- ${trade.symbol || 'N/A'}: Amount: ${trade.initialBuy || 'N/A'}, Market Cap: ${trade.marketCapSol || 'N/A'} SOL, Type: ${trade.txType || 'N/A'}, Time: ${new Date(trade.timestamp).toLocaleString() || 'N/A'}`);
-    });
-}
-
-// Initialization
+// Initialize everything
 async function initialize() {
-    await initDB();
-    initializeWebSocket();
-    await fetchAndDisplayData();
-    setInterval(fetchAndDisplayData, UPDATE_INTERVAL);
+    console.log('Initializing application...');
+    try {
+        await initDB();
+        initializeWebSocket();
+        await fetchAndDisplayData();
+        setInterval(fetchAndDisplayData, UPDATE_INTERVAL);
+    } catch (error) {
+        console.error('Error during initialization:', error);
+    }
 }
+
+// Make everything globally available
+window.initializeWebSocket = initializeWebSocket;
+window.checkWebSocketConnection = function() {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        console.log('WebSocket not connected. Reinitializing...');
+        initializeWebSocket();
+    }
+};
+window.fetchAndDisplayData = fetchAndDisplayData;
+window.initialize = initialize;
+window.allTokens = allTokens;
 
 // Start the application
-if (typeof window !== 'undefined') {
-    window.addEventListener('DOMContentLoaded', initialize);
-    window.fetchAndDisplayData = fetchAndDisplayData;
-}
-
-export {
-    fetchAndDisplayData,
-    initializeWebSocket,
-    processMessage
-};
+document.addEventListener('DOMContentLoaded', initialize);
