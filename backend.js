@@ -4,10 +4,16 @@ const WebSocket = require('ws');
 const fs = require('fs').promises;
 const path = require('path');
 const fetch = require('node-fetch');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
+
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ 
+    server,
+    path: '/ws'
+});
 
 const tokensFile = path.join(__dirname, 'tokens.json');
 const tradesFile = path.join(__dirname, 'trades.json');
@@ -27,9 +33,8 @@ async function fetchSolPrice() {
     }
 }
 
-// Fetch SOL price every 5 minutes
 setInterval(fetchSolPrice, 5 * 60 * 1000);
-fetchSolPrice(); // Initial fetch
+fetchSolPrice();
 
 async function saveData(file, data) {
     await fs.writeFile(file, JSON.stringify(data, null, 2));
@@ -71,6 +76,14 @@ pumpFunWs.on('open', () => {
     subscriptions.forEach(sub => pumpFunWs.send(JSON.stringify(sub)));
 });
 
+pumpFunWs.on('error', (error) => {
+    console.error('PumpPortal WebSocket error:', error);
+    // Attempt to reconnect after a delay
+    setTimeout(() => {
+        pumpFunWs = new WebSocket('wss://pumpportal.fun/api/data');
+    }, 5000);
+});
+
 pumpFunWs.on('message', async (data) => {
     const message = JSON.parse(data);
     console.log('Received from pumpportal:', message);
@@ -91,8 +104,8 @@ pumpFunWs.on('message', async (data) => {
             volume15m: 0,
             volume1h: 0,
             volume24h: 0,
-            holderCount: Math.floor(Math.random() * 1000), // Simulated holder count
-            isTrending: Math.random() < 0.1 // 10% chance of being trending
+            holderCount: Math.floor(Math.random() * 1000),
+            isTrending: Math.random() < 0.1
         };
 
         if (newToken.isTrending) {
@@ -149,9 +162,13 @@ async function fetchImageUrlFromUri(tokenUri) {
 
 app.use(express.static('public'));
 
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.get('/api/tokens', async (req, res) => {
     const updatedTokens = allTokens.map(token => {
-        const isStrongHolderBase = token.holderCount > 500; // Arbitrary threshold
+        const isStrongHolderBase = token.holderCount > 500;
         const isSimilarToTrending = Array.from(trendingCoins).some(trendingCoin =>
             token.name.toLowerCase().includes(trendingCoin) ||
             trendingCoin.includes(token.name.toLowerCase())
@@ -178,16 +195,26 @@ wss.on('connection', (ws) => {
     console.log('New client connected');
     ws.send(JSON.stringify({ type: 'initialTokens', data: allTokens }));
 
+    ws.on('error', (error) => {
+        console.error('WebSocket client error:', error);
+    });
+
     ws.on('close', () => {
         console.log('Client disconnected');
     });
 });
 
+wss.on('error', (error) => {
+    console.error('WebSocket server error:', error);
+});
+
 async function start() {
     await initializeFiles();
     const PORT = process.env.PORT || 3001;
+    
     server.listen(PORT, '0.0.0.0', () => {
         console.log(`Server running on port ${PORT}`);
+        console.log(`WebSocket server is running on ws://localhost:${PORT}/ws`);
     });
 }
 
