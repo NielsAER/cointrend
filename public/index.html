@@ -590,5 +590,16 @@
         // Initialize the dashboard
         initializeState();
     </script>
+
+    <script src="/frontend.js"></script>
+    <script>
+        // This ensures proper order of script loading
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof initializeWebSocket === 'function') {
+                initializeWebSocket();
+            }
+        });
+    </script>
+    
 </body>
 </html>
