@@ -1,63 +1,82 @@
 const WebSocket = require('ws');
 const http = require('http');
 
-const socket = new WebSocket('ws://localhost:3001');
+// Function to get the WebSocket URL based on the environment
+function getWebSocketUrl() {
+    const port = process.env.PORT || 3001;
+    return `ws://${process.env.NODE_ENV === 'production' ? window.location.host : 'localhost:' + port}/ws`;
+}
 
-socket.on('open', () => {
-    console.log('Connected to backend');
-});
+// Create WebSocket connection with retry mechanism
+function createWebSocket() {
+    const socket = new WebSocket(getWebSocketUrl());
 
-socket.on('message', (data) => {
-    console.log('Received message:', data.toString());
-    try {
-        const message = JSON.parse(data);
-        processMessage(message);
-    } catch (error) {
-        console.error('Error processing message:', error);
-    }
-});
+    socket.on('open', () => {
+        console.log('Connected to backend');
+    });
 
-socket.on('error', (error) => {
-    console.error('WebSocket error:', error);
-});
+    socket.on('message', (data) => {
+        console.log('Received message:', data.toString());
+        try {
+            const message = JSON.parse(data);
+            processMessage(message);
+        } catch (error) {
+            console.error('Error processing message:', error);
+        }
+    });
 
-socket.on('close', () => {
-    console.log('Disconnected from backend');
-});
+    socket.on('error', (error) => {
+        console.error('WebSocket error:', error);
+    });
+
+    socket.on('close', () => {
+        console.log('Disconnected from backend');
+        // Attempt to reconnect after 5 seconds
+        setTimeout(createWebSocket, 5000);
+    });
+
+    return socket;
+}
+
+let socket = createWebSocket();
 
 function processMessage(message) {
-    if (message.txType === 'create') {
-        console.log('New Token:', message);
-    } else {
-        console.log('New Trade:', message);
+    if (message.type === 'newToken') {
+        console.log('New Token:', message.data);
+    } else if (message.type === 'newTrade') {
+        console.log('New Trade:', message.data);
+    } else if (message.type === 'initialTokens') {
+        console.log('Initial Tokens:', message.data);
     }
 }
 
-function httpGet(url) {
-    return new Promise((resolve, reject) => {
-        http.get(url, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => {
-                try {
-                    resolve(JSON.parse(data));
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        }).on('error', (err) => {
-            reject(err);
-        });
-    });
+// Function to get the API base URL
+function getApiBaseUrl() {
+    const port = process.env.PORT || 3001;
+    return process.env.NODE_ENV === 'production' 
+        ? window.location.origin 
+        : `http://localhost:${port}`;
+}
+
+async function httpGet(endpoint) {
+    const baseUrl = getApiBaseUrl();
+    try {
+        const response = await fetch(`${baseUrl}${endpoint}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Fetch error:', error);
+        throw error;
+    }
 }
 
 async function fetchAndDisplayData() {
     try {
         const [tokens, trades] = await Promise.all([
-            httpGet('http://localhost:3001/api/tokens'),
-            httpGet('http://localhost:3001/api/trades')
+            httpGet('/api/tokens'),
+            httpGet('/api/trades')
         ]);
 
         console.clear();
@@ -82,3 +101,8 @@ fetchAndDisplayData();
 
 // Fetch data every 30 seconds
 setInterval(fetchAndDisplayData, 30000);
+
+// Export for use in browser
+if (typeof window !== 'undefined') {
+    window.fetchAndDisplayData = fetchAndDisplayData;
+}
