@@ -185,9 +185,22 @@ wss.on('connection', (ws) => {
 
 async function start() {
     await initializeFiles();
-    const PORT = process.env.PORT || 3001;
+    const PORT = process.env.PORT || 8080;
+    
+    server.on('error', (error) => {
+        if (error.code === 'EADDRINUSE') {
+            console.log(`Port ${PORT} is already in use. Trying port ${PORT + 1}`);
+            setTimeout(() => {
+                server.close();
+                server.listen(PORT + 1, '0.0.0.0');
+            }, 1000);
+        } else {
+            console.error('Server error:', error);
+        }
+    });
+
     server.listen(PORT, '0.0.0.0', () => {
-        console.log(`Server running on port ${PORT}`);
+        console.log(`Server running on port ${server.address().port}`);
     });
 }
 
