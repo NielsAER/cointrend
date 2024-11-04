@@ -451,13 +451,16 @@
         // Data handling functions
         async function handleNewToken(token) {
             console.log('Handling new token:', token);
+            // Update the global allTokens array
             const existingIndex = allTokens.findIndex(t => t.mint === token.mint);
             if (existingIndex !== -1) {
                 allTokens[existingIndex] = { ...allTokens[existingIndex], ...token };
             } else {
                 allTokens.unshift(token);
-                if (allTokens.length > 100) allTokens.pop();
             }
+            
+            // Update IndexedDB and UI
+            await saveTokensToDB(allTokens);
             filterSortAndDisplayTokens();
         }
 
