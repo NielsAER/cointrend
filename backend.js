@@ -1,5 +1,3 @@
-// Modify backend.js to persist tokens across page refreshes by loading and saving tokens to a file
-
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -172,6 +170,10 @@ app.get('/api/trades', async (req, res) => {
     res.json(trades);
 });
 
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
 wss.on('connection', (ws) => {
     console.log('New client connected');
     ws.send(JSON.stringify({ type: 'initialTokens', data: allTokens }));
@@ -183,8 +185,9 @@ wss.on('connection', (ws) => {
 
 async function start() {
     await initializeFiles();
-    server.listen(3001, () => {
-        console.log('Server running on http://localhost:3001');
+    const PORT = process.env.PORT || 3001;
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server running on port ${PORT}`);
     });
 }
 
