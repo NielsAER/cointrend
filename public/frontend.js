@@ -1,56 +1,173 @@
-const WebSocket = require('ws');
-const http = require('http');
+// Constants
+const WEBSOCKET_RETRY_DELAY = 5000;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const UPDATE_INTERVAL = 30000;
 
-// Function to get the WebSocket URL based on the environment
-function getWebSocketUrl() {
-    const port = process.env.PORT || 3001;
-    return `ws://${process.env.NODE_ENV === 'production' ? window.location.host : 'localhost:' + port}/ws`;
+// State management
+let socket;
+let reconnectAttempts = 0;
+let allTokens = [];
+let allTrades = [];
+
+// IndexedDB setup
+const DB_NAME = 'CryptoDashboard';
+const STORE_NAME = 'tokens';
+const DB_VERSION = 1;
+
+async function initDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME, { keyPath: 'mint' });
+            }
+        };
+    });
 }
 
-// Create WebSocket connection with retry mechanism
-function createWebSocket() {
-    const socket = new WebSocket(getWebSocketUrl());
-
-    socket.on('open', () => {
-        console.log('Connected to backend');
-    });
-
-    socket.on('message', (data) => {
-        console.log('Received message:', data.toString());
-        try {
-            const message = JSON.parse(data);
-            processMessage(message);
-        } catch (error) {
-            console.error('Error processing message:', error);
-        }
-    });
-
-    socket.on('error', (error) => {
-        console.error('WebSocket error:', error);
-    });
-
-    socket.on('close', () => {
-        console.log('Disconnected from backend');
-        // Attempt to reconnect after 5 seconds
-        setTimeout(createWebSocket, 5000);
-    });
-
-    return socket;
-}
-
-let socket = createWebSocket();
-
-function processMessage(message) {
-    if (message.type === 'newToken') {
-        console.log('New Token:', message.data);
-    } else if (message.type === 'newTrade') {
-        console.log('New Trade:', message.data);
-    } else if (message.type === 'initialTokens') {
-        console.log('Initial Tokens:', message.data);
+async function saveTokensToDB(tokens) {
+    try {
+        const db = await initDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        tokens.forEach(token => store.put(token));
+        
+        return new Promise((resolve, reject) => {
+            transaction.oncomplete = resolve;
+            transaction.onerror = () => reject(transaction.error);
+        });
+    } catch (error) {
+        console.error('Error saving to IndexedDB:', error);
     }
 }
 
-// Function to get the API base URL
+async function getTokensFromDB() {
+    try {
+        const db = await initDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+        
+        return new Promise((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    } catch (error) {
+        console.error('Error reading from IndexedDB:', error);
+        return [];
+    }
+}
+
+// WebSocket setup
+function getWebSocketUrl() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = process.env.PORT || 3001;
+    return `${protocol}//${host}:${port}/ws`;
+}
+
+function initializeWebSocket() {
+    if (socket) {
+        socket.close();
+    }
+
+    socket = new WebSocket(getWebSocketUrl());
+    console.log('Initializing WebSocket connection...');
+
+    socket.onopen = () => {
+        console.log('WebSocket Connected');
+        reconnectAttempts = 0;
+        fetchAndDisplayData();
+    };
+
+    socket.onmessage = async (event) => {
+        try {
+            const message = JSON.parse(event.data);
+            await processMessage(message);
+        } catch (error) {
+            console.error('Error processing WebSocket message:', error);
+        }
+    };
+
+    socket.onclose = () => {
+        console.log('WebSocket disconnected');
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+            setTimeout(initializeWebSocket, WEBSOCKET_RETRY_DELAY);
+        } else {
+            console.log('Max reconnection attempts reached. Please refresh the page.');
+        }
+    };
+
+    socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+}
+
+// Message processing
+async function processMessage(message) {
+    console.log('Processing message:', message);
+    
+    switch (message.type) {
+        case 'initialTokens':
+            await handleInitialTokens(message.data);
+            break;
+        case 'newToken':
+            await handleNewToken(message.data);
+            break;
+        case 'newTrade':
+            await handleNewTrade(message.data);
+            break;
+        default:
+            console.log('Unknown message type:', message.type);
+    }
+}
+
+async function handleInitialTokens(tokens) {
+    console.log('Handling initial tokens:', tokens);
+    if (!Array.isArray(tokens)) {
+        console.error('Invalid tokens data received');
+        return;
+    }
+    
+    allTokens = tokens;
+    await saveTokensToDB(tokens);
+    updateDisplay();
+}
+
+async function handleNewToken(token) {
+    console.log('Handling new token:', token);
+    if (!token || !token.mint) {
+        console.error('Invalid token data received');
+        return;
+    }
+    
+    const existingIndex = allTokens.findIndex(t => t.mint === token.mint);
+    if (existingIndex !== -1) {
+        allTokens[existingIndex] = { ...allTokens[existingIndex], ...token };
+    } else {
+        allTokens.unshift(token);
+    }
+    
+    await saveTokensToDB(allTokens);
+    updateDisplay();
+}
+
+async function handleNewTrade(trade) {
+    console.log('Handling new trade:', trade);
+    allTrades.unshift(trade);
+    if (allTrades.length > 100) allTrades.pop();
+    updateDisplay();
+}
+
+// API and data fetching
 function getApiBaseUrl() {
     const port = process.env.PORT || 3001;
     return process.env.NODE_ENV === 'production' 
@@ -79,30 +196,66 @@ async function fetchAndDisplayData() {
             httpGet('/api/trades')
         ]);
 
-        console.clear();
-        console.log('Crypto Dashboard\n');
+        if (Array.isArray(tokens)) {
+            allTokens = tokens;
+            await saveTokensToDB(tokens);
+        }
+        
+        if (Array.isArray(trades)) {
+            allTrades = trades;
+        }
 
-        console.log('New Tokens:');
-        tokens.slice(0, 10).forEach(token => {
-            console.log(`- ${token.name || 'N/A'} (${token.mint || 'N/A'}) - Created: ${new Date(token.timestamp).toLocaleString() || 'N/A'}`);
-        });
-
-        console.log('\nRecent Trades:');
-        trades.slice(0, 10).forEach(trade => {
-            console.log(`- ${trade.symbol || 'N/A'}: Amount: ${trade.initialBuy || 'N/A'}, Market Cap: ${trade.marketCapSol || 'N/A'} SOL, Type: ${trade.txType || 'N/A'}, Time: ${new Date(trade.timestamp).toLocaleString() || 'N/A'}`);
-        });
+        updateDisplay();
     } catch (error) {
         console.error('Error fetching data:', error);
+        // Try to load from IndexedDB if API fetch fails
+        const savedTokens = await getTokensFromDB();
+        if (savedTokens.length > 0) {
+            allTokens = savedTokens;
+            updateDisplay();
+        }
     }
 }
 
-// Fetch initial data
-fetchAndDisplayData();
+// Display functions
+function updateDisplay() {
+    displayTokens();
+    displayTrades();
+}
 
-// Fetch data every 30 seconds
-setInterval(fetchAndDisplayData, 30000);
+function displayTokens() {
+    console.log('Displaying Tokens:');
+    allTokens.slice(0, 10).forEach(token => {
+        console.log(`- ${token.name || 'N/A'} (${token.mint || 'N/A'}) - Created: ${new Date(token.timestamp).toLocaleString() || 'N/A'}`);
+        if (token.marketCapUsd) {
+            console.log(`  Market Cap: $${token.marketCapUsd.toLocaleString()}`);
+        }
+    });
+}
 
-// Export for use in browser
+function displayTrades() {
+    console.log('\nRecent Trades:');
+    allTrades.slice(0, 10).forEach(trade => {
+        console.log(`- ${trade.symbol || 'N/A'}: Amount: ${trade.initialBuy || 'N/A'}, Market Cap: ${trade.marketCapSol || 'N/A'} SOL, Type: ${trade.txType || 'N/A'}, Time: ${new Date(trade.timestamp).toLocaleString() || 'N/A'}`);
+    });
+}
+
+// Initialization
+async function initialize() {
+    await initDB();
+    initializeWebSocket();
+    await fetchAndDisplayData();
+    setInterval(fetchAndDisplayData, UPDATE_INTERVAL);
+}
+
+// Start the application
 if (typeof window !== 'undefined') {
+    window.addEventListener('DOMContentLoaded', initialize);
     window.fetchAndDisplayData = fetchAndDisplayData;
 }
+
+export {
+    fetchAndDisplayData,
+    initializeWebSocket,
+    processMessage
+};
