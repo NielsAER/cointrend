@@ -210,23 +210,20 @@
         <span id="pageInfo">Page 1 of 1</span>
         <button id="nextPage" class="page-btn">Next</button>
     </div>
-
-    <!-- Core functionality script -->
     <script>
-        // Global constants and state
+        // Global state
         const ITEMS_PER_PAGE = 20;
         let currentPage = 1;
         let totalPages = 1;
         let allTokens = [];
-        
+        let socket;
+
         // DOM Elements
         const featuredSection = document.getElementById('featured-section');
         const tokenGrid = document.getElementById('token-grid');
         const sortSelect = document.getElementById('sortSelect');
         const orderSelect = document.getElementById('orderSelect');
         const resetFiltersButton = document.getElementById('resetFilters');
-
-        // Filter elements
         const filterElements = {
             minMarketCap: document.getElementById('minMarketCap'),
             maxMarketCap: document.getElementById('maxMarketCap'),
@@ -237,8 +234,8 @@
             maxVolume60m: document.getElementById('maxVolume60m'),
             minHolders: document.getElementById('minHolders'),
             maxTop10Holders: document.getElementById('maxTop10Holders'),
-            sortSelect: sortSelect,
-            orderSelect: orderSelect,
+            sortSelect,
+            orderSelect,
             showAnimations: document.getElementById('showAnimations'),
             includeNsfw: document.getElementById('includeNsfw')
         };
@@ -248,13 +245,9 @@
             if (!marketCap) return 'N/A';
             const cap = parseFloat(marketCap);
             if (isNaN(cap)) return 'N/A';
-            if (cap >= 1000000) {
-                return '$' + (cap / 1000000).toFixed(2) + 'M';
-            } else if (cap >= 1000) {
-                return '$' + (cap / 1000).toFixed(2) + 'K';
-            } else {
-                return '$' + cap.toFixed(2);
-            }
+            if (cap >= 1000000) return '$' + (cap / 1000000).toFixed(2) + 'M';
+            if (cap >= 1000) return '$' + (cap / 1000).toFixed(2) + 'K';
+            return '$' + cap.toFixed(2);
         }
 
         function createTokenCard(token) {
@@ -265,26 +258,125 @@
             card.innerHTML = `
                 <img src="${imageUrl}" alt="${token.name}" class="token-image" onerror="this.onerror=null; this.src='https://via.placeholder.com/250x200?text=No+Image'">
                 <div class="token-info">
-                    <div class="token-name">${token.name} (ticker: ${token.symbol})</div>
-                    <div class="creator-info">Created by ${token.creator} ${token.createdAgo}</div>
+                    <div class="token-name">${token.name} (${token.symbol})</div>
+                    <div class="creator-info">Created by ${token.creator || 'Unknown'}</div>
                     <div class="token-details">
-                        <div>market cap: ${formatMarketCap(token.marketCapUsd)} USD <span class="badge">⚡</span><span class="badge">💎</span></div>
-                        <div>holders: ${token.holderCount}</div>
-                        <div>replies: ${token.replies}</div>
-                        <div>5m volume: ${formatMarketCap(token.volume5m)}</div>
-                        <div>60m volume: ${formatMarketCap(token.volume60m)}</div>
-                        <div>top 10 holders: ${token.top10HoldersPercentage}%</div>
-                        <div>${token.description}</div>
+                        <div>Market Cap: ${formatMarketCap(token.marketCapUsd)} USD</div>
+                        <div>Holders: ${token.holderCount || 0}</div>
+                        <div>5m Volume: ${formatMarketCap(token.volume5m)}</div>
+                        <div>60m Volume: ${formatMarketCap(token.volume60m)}</div>
+                        <div>Top 10 Holders: ${token.top10HoldersPercentage || 0}%</div>
                     </div>
                 </div>
             `;
 
-            card.addEventListener('click', () => {
-                const detailUrl = `coin-detail.html?mint=${token.mint}&symbol=${token.symbol}`;
-                window.location.assign(detailUrl);
+            return card;
+        }
+
+        function filterSortAndDisplayTokens() {
+            console.log('Filtering tokens, total:', allTokens.length);
+            let filteredTokens = [...allTokens];
+
+            // Apply filters
+            filteredTokens = filteredTokens.filter(token => {
+                // Market Cap Filter
+                const minMarketCap = parseFloat(filterElements.minMarketCap.value);
+                const maxMarketCap = parseFloat(filterElements.maxMarketCap.value);
+                if (!isNaN(minMarketCap) && token.marketCapUsd < minMarketCap) return false;
+                if (!isNaN(maxMarketCap) && token.marketCapUsd > maxMarketCap) return false;
+
+                // Comments/Replies Filter
+                const minComments = parseInt(filterElements.minComments.value);
+                if (!isNaN(minComments) && (token.replies || 0) < minComments) return false;
+
+                // 5m Volume Filter
+                const minVolume5m = parseFloat(filterElements.minVolume5m.value);
+                const maxVolume5m = parseFloat(filterElements.maxVolume5m.value);
+                if (!isNaN(minVolume5m) && (token.volume5m || 0) < minVolume5m) return false;
+                if (!isNaN(maxVolume5m) && (token.volume5m || 0) > maxVolume5m) return false;
+
+                // 60m Volume Filter
+                const minVolume60m = parseFloat(filterElements.minVolume60m.value);
+                const maxVolume60m = parseFloat(filterElements.maxVolume60m.value);
+                if (!isNaN(minVolume60m) && (token.volume60m || 0) < minVolume60m) return false;
+                if (!isNaN(maxVolume60m) && (token.volume60m || 0) > maxVolume60m) return false;
+
+                // Holders Filter
+                const minHolders = parseInt(filterElements.minHolders.value);
+                if (!isNaN(minHolders) && (token.holderCount || 0) < minHolders) return false;
+
+                // Top 10 Holders Filter
+                const maxTop10Holders = parseFloat(filterElements.maxTop10Holders.value);
+                if (!isNaN(maxTop10Holders) && (token.top10HoldersPercentage || 0) > maxTop10Holders) return false;
+
+                return true;
             });
 
-            return card;
+            // Sort tokens
+            const sortBy = filterElements.sortSelect.value;
+            const orderBy = filterElements.orderSelect.value;
+
+            filteredTokens.sort((a, b) => {
+                let comparison = 0;
+                switch (sortBy) {
+                    case 'marketCap':
+                        comparison = ((b.marketCapUsd || 0) - (a.marketCapUsd || 0));
+                        break;
+                    case 'featured':
+                        comparison = ((b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+                        break;
+                    case 'bumpOrder':
+                        comparison = ((b.bumpOrder || 0) - (a.bumpOrder || 0));
+                        break;
+                    case 'creationTime':
+                        comparison = ((b.timestamp || 0) - (a.timestamp || 0));
+                        break;
+                    case 'lastReply':
+                        comparison = ((b.lastReply || 0) - (a.lastReply || 0));
+                        break;
+                    case 'currentlyLive':
+                        comparison = ((b.currentlyLive ? 1 : 0) - (a.currentlyLive ? 1 : 0));
+                        break;
+                    default:
+                        comparison = ((b.marketCapUsd || 0) - (a.marketCapUsd || 0));
+                }
+                return orderBy === 'asc' ? -comparison : comparison;
+            });
+
+            // Pagination
+            totalPages = Math.ceil(filteredTokens.length / ITEMS_PER_PAGE);
+            const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+            const endIndex = startIndex + ITEMS_PER_PAGE;
+            const tokensToDisplay = filteredTokens.slice(startIndex, endIndex);
+
+            displayTokens(tokensToDisplay);
+            updatePaginationControls();
+        }
+
+        function displayTokens(tokens) {
+            console.log('Displaying tokens:', tokens.length);
+            tokenGrid.innerHTML = '';
+            featuredSection.innerHTML = '';
+
+            const featuredTokens = tokens.filter(token => token.featured);
+            const regularTokens = tokens.filter(token => !token.featured);
+
+            if (featuredTokens.length > 0) {
+                const featuredHeader = document.createElement('h2');
+                featuredHeader.textContent = 'Featured Tokens';
+                featuredSection.appendChild(featuredHeader);
+
+                const featuredGrid = document.createElement('div');
+                featuredGrid.className = 'token-grid';
+                featuredTokens.forEach(token => {
+                    featuredGrid.appendChild(createTokenCard(token));
+                });
+                featuredSection.appendChild(featuredGrid);
+            }
+
+            regularTokens.forEach(token => {
+                tokenGrid.appendChild(createTokenCard(token));
+            });
         }
 
         function updatePaginationControls() {
@@ -297,117 +389,81 @@
             pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
         }
 
-        function filterSortAndDisplayTokens() {
-            console.log('Filtering and displaying tokens:', allTokens.length);
-            let filteredTokens = [...allTokens];
-
-            // Apply filters
-            filteredTokens = filteredTokens.filter(token => {
-                if (filterElements.minMarketCap.value && token.marketCapUsd < parseFloat(filterElements.minMarketCap.value)) return false;
-                if (filterElements.maxMarketCap.value && token.marketCapUsd > parseFloat(filterElements.maxMarketCap.value)) return false;
-                if (filterElements.minComments.value && token.replies < parseInt(filterElements.minComments.value)) return false;
-                if (filterElements.minVolume5m.value && token.volume5m < parseFloat(filterElements.minVolume5m.value)) return false;
-                if (filterElements.maxVolume5m.value && token.volume5m > parseFloat(filterElements.maxVolume5m.value)) return false;
-                if (filterElements.minVolume60m.value && token.volume60m < parseFloat(filterElements.minVolume60m.value)) return false;
-                if (filterElements.maxVolume60m.value && token.volume60m > parseFloat(filterElements.maxVolume60m.value)) return false;
-                if (filterElements.minHolders.value && token.holderCount < parseInt(filterElements.minHolders.value)) return false;
-                if (filterElements.maxTop10Holders.value && token.top10HoldersPercentage > parseFloat(filterElements.maxTop10Holders.value)) return false;
-                return true;
-            });
-
-            // Sort tokens
-            const sortMethod = filterElements.sortSelect.value;
-            const orderMethod = filterElements.orderSelect.value;
-
-            filteredTokens.sort((a, b) => {
-                let comparison = 0;
-                switch (sortMethod) {
-                    case 'marketCap':
-                        comparison = (b.marketCapUsd || 0) - (a.marketCapUsd || 0);
-                        break;
-                    case 'featured':
-                        comparison = (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
-                        break;
-                    case 'bumpOrder':
-                        comparison = (b.bumpOrder || 0) - (a.bumpOrder || 0);
-                        break;
-                    case 'creationTime':
-                        comparison = (b.timestamp || 0) - (a.timestamp || 0);
-                        break;
-                    case 'lastReply':
-                        comparison = (b.lastReply || 0) - (a.lastReply || 0);
-                        break;
-                    case 'currentlyLive':
-                        comparison = (b.currentlyLive ? 1 : 0) - (a.currentlyLive ? 1 : 0);
-                        break;
-                }
-                return orderMethod === 'asc' ? -comparison : comparison;
-            });
-
-            // Pagination
-            totalPages = Math.ceil(filteredTokens.length / ITEMS_PER_PAGE);
-            const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-            const endIndex = startIndex + ITEMS_PER_PAGE;
-            const tokensToDisplay = filteredTokens.slice(startIndex, endIndex);
-
-            // Save filters
-            const currentFilters = {};
-            Object.entries(filterElements).forEach(([key, element]) => {
-                currentFilters[key] = element.value;
-            });
-            localStorage.setItem('cryptoDashboardFilters', JSON.stringify(currentFilters));
-
-            // Display tokens
-            displayFeaturedTokens(tokensToDisplay);
-            displayRegularTokens(tokensToDisplay);
-            updatePaginationControls();
-        }
-
-        function displayFeaturedTokens(tokens) {
-            console.log('Displaying featured tokens:', tokens.length);
-            featuredSection.innerHTML = '';
-            const featuredTokens = tokens.filter(token => token.featured);
-            const groups = groupSimilarTokens(featuredTokens);
-
-            groups.forEach(group => {
-                const groupElement = document.createElement('div');
-                groupElement.className = 'featured-group';
-                groupElement.innerHTML = `<h2>${group[0].name} Group</h2>`;
-                const groupGrid = document.createElement('div');
-                groupGrid.className = 'token-grid';
-                group.forEach(token => {
-                    groupGrid.appendChild(createTokenCard(token));
-                });
-                groupElement.appendChild(groupGrid);
-                featuredSection.appendChild(groupElement);
-            });
-        }
-
-        function displayRegularTokens(tokens) {
-            console.log('Displaying regular tokens:', tokens.length);
-            tokenGrid.innerHTML = '';
-            const regularTokens = tokens.filter(token => !token.featured);
-            regularTokens.forEach(token => {
-                tokenGrid.appendChild(createTokenCard(token));
-            });
-        }
-
-        function groupSimilarTokens(tokens) {
-            const groups = [];
-            const processedTokens = new Set();
-
-            tokens.forEach(token => {
-                if (!processedTokens.has(token.mint)) {
-                    const similarTokens = tokens.filter(t =>
-                        t.name.toLowerCase().includes(token.name.toLowerCase()) ||
-                        token.name.toLowerCase().includes(t.name.toLowerCase())
-                    );
-                    groups.push(similarTokens);
-                    similarTokens.forEach(t => processedTokens.add(t.mint));
+        function setupFilterListeners() {
+            // Remove any existing listeners first
+            Object.values(filterElements).forEach(element => {
+                if (element) {
+                    element.removeEventListener('input', filterSortAndDisplayTokens);
+                    element.removeEventListener('change', filterSortAndDisplayTokens);
                 }
             });
 
-            return groups;
+            // Add new listeners
+            Object.values(filterElements).forEach(element => {
+                if (element) {
+                    if (element.type === 'number') {
+                        element.addEventListener('input', () => {
+                            console.log(`Filter changed: ${element.id} = ${element.value}`);
+                            currentPage = 1;
+                            filterSortAndDisplayTokens();
+                        });
+                    } else if (element.tagName === 'SELECT') {
+                        element.addEventListener('change', () => {
+                            console.log(`Sort/Order changed: ${element.id} = ${element.value}`);
+                            currentPage = 1;
+                            filterSortAndDisplayTokens();
+                        });
+                    }
+                }
+            });
+        }
+
+        // WebSocket Functions
+        function initializeWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.hostname || 'localhost';
+            const port = '3001';
+            const wsUrl = `${protocol}//${host}:${port}/ws`;
+
+            console.log('Connecting to WebSocket:', wsUrl);
+
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                console.log('WebSocket connected');
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    console.log('Received WebSocket message:', message);
+
+                    if (message.type === 'initialTokens') {
+                        allTokens = message.data;
+                        filterSortAndDisplayTokens();
+                    } else if (message.type === 'newToken') {
+                        const existingIndex = allTokens.findIndex(t => t.mint === message.data.mint);
+                        if (existingIndex !== -1) {
+                            allTokens[existingIndex] = { ...allTokens[existingIndex], ...message.data };
+                        } else {
+                            allTokens.unshift(message.data);
+                            if (allTokens.length > 100) allTokens.pop();
+                        }
+                        filterSortAndDisplayTokens();
+                    }
+                } catch (error) {
+                    console.error('Error processing WebSocket message:', error);
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            socket.onclose = () => {
+                console.log('WebSocket disconnected. Reconnecting in 5 seconds...');
+                setTimeout(initializeWebSocket, 5000);
+            };
         }
 
         // Event Listeners
@@ -425,77 +481,35 @@
             }
         });
 
-        resetFiltersButton.addEventListener('click', async function resetAll() {
+        resetFiltersButton.addEventListener('click', () => {
             Object.values(filterElements).forEach(element => {
-                if (element.type === 'number') {
+                if (element && element.type === 'number') {
                     element.value = '';
-                } else if (element.tagName === 'SELECT') {
+                } else if (element && element.tagName === 'SELECT') {
                     element.selectedIndex = 0;
                 }
             });
-
-            localStorage.removeItem('cryptoDashboardFilters');
             currentPage = 1;
-            await fetchAndDisplayData();
-        });
-
-        // Filter change listeners
-        Object.values(filterElements).forEach(element => {
-            if (element.type === 'number') {
-                element.addEventListener('input', filterSortAndDisplayTokens);
-            } else {
-                element.addEventListener('change', filterSortAndDisplayTokens);
-            }
-        });
-
-        // Data handling functions
-        async function handleNewToken(token) {
-            console.log('Handling new token:', token);
-            // Update the global allTokens array
-            const existingIndex = allTokens.findIndex(t => t.mint === token.mint);
-            if (existingIndex !== -1) {
-                allTokens[existingIndex] = { ...allTokens[existingIndex], ...token };
-            } else {
-                allTokens.unshift(token);
-            }
-            
-            // Update IndexedDB and UI
-            await saveTokensToDB(allTokens);
             filterSortAndDisplayTokens();
-        }
-
-        async function handleInitialTokens(tokens) {
-            console.log('Handling initial tokens:', tokens?.length);
-            if (Array.isArray(tokens)) {
-                allTokens = tokens;
-                filterSortAndDisplayTokens();
-            }
-        }
-    </script>
-
-    <!-- WebSocket and initialization -->
-    <script src="/frontend.js"></script>
-    <script>
-        // Initialize everything when the page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('Page loaded, initializing...');
-            if (typeof initialize === 'function') {
-                initialize();
-                // Check WebSocket connection periodically
-                setInterval(() => {
-                    if (typeof checkWebSocketConnection === 'function') {
-                        checkWebSocketConnection();
-                    }
-                }, 5000);
-            }
         });
 
-        // Make functions available to frontend.js
-        window.handleNewToken = handleNewToken;
-        window.handleInitialTokens = handleInitialTokens;
-        window.filterSortAndDisplayTokens = filterSortAndDisplayTokens;
-        window.allTokens = allTokens;
-    </script>
+        // Initialize
+        function initialize() {
+            console.log('Initializing application...');
+            setupFilterListeners();
+            initializeWebSocket();
 
+            // Check WebSocket connection periodically
+            setInterval(() => {
+                if (!socket || socket.readyState !== WebSocket.OPEN) {
+                    console.log('WebSocket not connected. Reinitializing...');
+                    initializeWebSocket();
+                }
+            }, 5000);
+        }
+
+        // Start the application when the page loads
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
 </body>
-</html>
+</html
