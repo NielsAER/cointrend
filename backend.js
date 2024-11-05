@@ -7,14 +7,10 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 
 const app = express();
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type']
-}));
+app.use(cors());
 
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ 
+const wss = new WebSocket.Server({
     server,
     path: '/ws'
 });
@@ -68,10 +64,9 @@ async function initializeFiles() {
     }
 }
 
-// Updated PumpPortal WebSocket handling
 let pumpFunWs;
 
-function initializePumpPortalWebSocket() {
+function connectPumpFunWs() {
     pumpFunWs = new WebSocket('wss://pumpportal.fun/api/data');
 
     pumpFunWs.on('open', () => {
@@ -86,83 +81,69 @@ function initializePumpPortalWebSocket() {
 
     pumpFunWs.on('error', (error) => {
         console.error('PumpPortal WebSocket error:', error);
-        setTimeout(initializePumpPortalWebSocket, 5000);
-    });
-
-    pumpFunWs.on('close', () => {
-        console.log('PumpPortal connection closed. Attempting to reconnect...');
-        setTimeout(initializePumpPortalWebSocket, 5000);
+        // Attempt to reconnect after a delay
+        setTimeout(connectPumpFunWs, 5000);
     });
 
     pumpFunWs.on('message', async (data) => {
-        try {
-            const message = JSON.parse(data);
-            console.log('Received from pumpportal:', message);
+        const message = JSON.parse(data);
+        console.log('Received from pumpportal:', message);
 
-            if (message.txType === 'create') {
-                const imageUrl = await fetchImageUrlFromUri(message.uri);
-                const marketCapUsd = message.marketCapSol * solPrice;
+        if (message.txType === 'create') {
+            const imageUrl = await fetchImageUrlFromUri(message.uri);
 
-                const newToken = {
-                    ...message,
-                    timestamp: Date.now(),
-                    imageUrl: imageUrl,
-                    marketCapSol: message.marketCapSol,
-                    marketCapUsd: marketCapUsd,
-                    marketCapPerCoin: message.marketCapSol / message.initialBuy,
-                    volume5m: 0,
-                    volume15m: 0,
-                    volume1h: 0,
-                    volume24h: 0,
-                    holderCount: Math.floor(Math.random() * 1000),
-                    isTrending: Math.random() < 0.1
-                };
+            const marketCapUsd = message.marketCapSol * solPrice;
 
-                if (newToken.isTrending) {
-                    trendingCoins.add(newToken.name.toLowerCase());
+            const newToken = {
+                ...message,
+                timestamp: Date.now(),
+                imageUrl: imageUrl,
+                marketCapSol: message.marketCapSol,
+                marketCapUsd: marketCapUsd,
+                marketCapPerCoin: message.marketCapSol / message.initialBuy,
+                volume5m: 0,
+                volume15m: 0,
+                volume1h: 0,
+                volume24h: 0,
+                holderCount: Math.floor(Math.random() * 1000),
+                isTrending: Math.random() < 0.1
+            };
+
+            if (newToken.isTrending) {
+                trendingCoins.add(newToken.name.toLowerCase());
+            }
+
+            allTokens.unshift(newToken);
+            if (allTokens.length > 100) allTokens.pop();
+            await saveData(tokensFile, allTokens);
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ type: 'newToken', data: newToken }));
                 }
-
-                allTokens.unshift(newToken);
-                if (allTokens.length > 100) allTokens.pop();
-                await saveData(tokensFile, allTokens);
-
-                // Broadcast to all connected clients
-                broadcastToClients({ type: 'newToken', data: newToken });
-            } else {
-                const newTrade = {
-                    ...message,
-                    timestamp: Date.now(),
-                    volume5m: message.volume5m || 0,
-                    volume15m: message.volume15m || 0,
-                    volume1h: message.volume1h || 0,
-                    volume24h: message.volume24h || 0
-                };
-                const trades = await loadData(tradesFile);
-                trades.unshift(newTrade);
-                if (trades.length > 100) trades.pop();
-                await saveData(tradesFile, trades);
-
-                // Broadcast trade to all connected clients
-                broadcastToClients({ type: 'newTrade', data: newTrade });
-            }
-        } catch (error) {
-            console.error('Error processing pumpportal message:', error);
+            });
+        } else {
+            const newTrade = {
+                ...message,
+                timestamp: Date.now(),
+                volume5m: message.volume5m || 0,
+                volume15m: message.volume15m || 0,
+                volume1h: message.volume1h || 0,
+                volume24h: message.volume24h || 0
+            };
+            const trades = await loadData(tradesFile);
+            trades.unshift(newTrade);
+            if (trades.length > 100) trades.pop();
+            await saveData(tradesFile, trades);
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ type: 'newTrade', data: newTrade }));
+                }
+            });
         }
     });
 }
 
-// Helper function to broadcast to all connected clients
-function broadcastToClients(message) {
-    wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            try {
-                client.send(JSON.stringify(message));
-            } catch (error) {
-                console.error('Error broadcasting to client:', error);
-            }
-        }
-    });
-}
+connectPumpFunWs();
 
 async function fetchImageUrlFromUri(tokenUri) {
     try {
@@ -183,19 +164,40 @@ async function fetchImageUrlFromUri(tokenUri) {
     }
 }
 
-// Updated client WebSocket connection handler
-wss.on('connection', async (ws) => {
-    console.log('New client connected');
-    try {
-        // Send initial tokens data
-        const tokens = await loadData(tokensFile);
-        ws.send(JSON.stringify({
-            type: 'initialTokens',
-            data: tokens
-        }));
-    } catch (error) {
-        console.error('Error sending initial data to client:', error);
-    }
+app.use(express.static('public'));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/api/tokens', async (req, res) => {
+    const updatedTokens = allTokens.map(token => {
+        const isStrongHolderBase = token.holderCount > 500;
+        const isSimilarToTrending = Array.from(trendingCoins).some(trendingCoin =>
+            token.name.toLowerCase().includes(trendingCoin) ||
+            trendingCoin.includes(token.name.toLowerCase())
+        );
+        return {
+            ...token,
+            marketCapUsd: token.marketCapSol * solPrice,
+            featured: token.isTrending || isStrongHolderBase || isSimilarToTrending
+        };
+    });
+    res.json(updatedTokens);
+});
+
+app.get('/api/trades', async (req, res) => {
+    const trades = await loadData(tradesFile);
+    res.json(trades);
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
+wss.on('connection', (ws) => {
+    console.log('New client connected, total clients:', wss.clients.size);
+    ws.send(JSON.stringify({ type: 'initialTokens', data: allTokens }));
 
     ws.on('error', (error) => {
         console.error('WebSocket client error:', error);
@@ -210,54 +212,10 @@ wss.on('error', (error) => {
     console.error('WebSocket server error:', error);
 });
 
-// Express routes
-app.use(express.static('public'));
-
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.get('/api/tokens', async (req, res) => {
-    try {
-        const updatedTokens = allTokens.map(token => {
-            const isStrongHolderBase = token.holderCount > 500;
-            const isSimilarToTrending = Array.from(trendingCoins).some(trendingCoin =>
-                token.name.toLowerCase().includes(trendingCoin) ||
-                trendingCoin.includes(token.name.toLowerCase())
-            );
-            return {
-                ...token,
-                marketCapUsd: token.marketCapSol * solPrice,
-                featured: token.isTrending || isStrongHolderBase || isSimilarToTrending
-            };
-        });
-        res.json(updatedTokens);
-    } catch (error) {
-        console.error('Error processing /api/tokens request:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.get('/api/trades', async (req, res) => {
-    try {
-        const trades = await loadData(tradesFile);
-        res.json(trades);
-    } catch (error) {
-        console.error('Error processing /api/trades request:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
-
-// Start server
 async function start() {
     await initializeFiles();
-    initializePumpPortalWebSocket();
-    
     const PORT = process.env.PORT || 3001;
+
     server.listen(PORT, '0.0.0.0', () => {
         console.log(`Server running on port ${PORT}`);
         console.log(`WebSocket server is running on ws://localhost:${PORT}/ws`);
